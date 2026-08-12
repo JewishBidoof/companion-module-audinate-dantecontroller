@@ -335,7 +335,7 @@ module.exports = {
 
 		this.debug = this.config.verbose;
 		this.timeout = this.config.timeoutInterval;
-		this.activeConnections = {};
+		this.closeConnection();
 		self.updateStatus(InstanceStatus.Connecting);
 		
 		// create data object
@@ -648,7 +648,30 @@ module.exports = {
 		this.updateData();
 	},
 	
-	
+
+	closeConnection: function() {
+		this.stopInterval();
+
+		if (this.mdns) {
+			this.mdns.destroy();
+			this.mdns = null;
+		}
+
+		if (this.sockets) {
+			for (const socket of Object.values(this.sockets)) {
+				socket.removeAllListeners();
+				try {
+					socket.close();
+				} catch (error) {
+					// Ignore sockets that were never bound or have already been closed.
+				}
+			}
+		}
+
+		this.sockets = {};
+		this.activeConnections = {};
+	},
+
 // keep device from being considered offline
 	keepAlive: function (deviceIp) {
 		const toArray = this.devicesData[deviceIp]?.timeoutArray;
@@ -676,7 +699,7 @@ module.exports = {
             this.log('debug', `ARC : Rx (${reply.length}): ${reply.toString("hex")}`);
         }
 
-          if (bufferToInt(reply, 0) == DANTE_CONST.PROTOCOL.CONTROL && replySize === bufferToInt(reply, 2)){
+          if (DANTE_CONST.CONTROL_PROTOCOLS.includes(bufferToInt(reply, 0)) && replySize === bufferToInt(reply, 2)){
  
 //			// network is alive
 //			this.updateStatus(InstanceStatus.Ok);
@@ -1053,7 +1076,7 @@ module.exports = {
 //			}
 //		}
 
-		const port = forcePort ?? this.devicesData?.[host]?.ports?.[service];
+		const port = forcePort ?? this.devicesData?.[host]?.ports?.[service] ?? DANTE_CONST.PORTS[service];
 		if (port) {	
 			this.sockets[service]?.send(command, 0, command.length, port, host); 
 		} else {
@@ -1284,7 +1307,7 @@ module.exports = {
 			}
 		}
 		let commandArguments = Buffer.from("0001000100", "hex");
-		for (let page = 0; page <= Math.ceil(this.devicesData[ipaddress]?.tx?.count/32); page++ ) {
+		for (let page = 0; page < Math.ceil((this.devicesData[ipaddress]?.tx?.count ?? 0) / 32); page++ ) {
 			commandArguments.writeUInt8(page*32+1, 3);
 			const commandBuffer = this.makeCommand(DANTE_CONST.COMMANDS.MESSAGE_TYPE_TX_CHANNEL_FRIENDLY_NAMES_QUERY, commandArguments);
 			this.sendCommand(commandBuffer, ipaddress); 
@@ -1293,7 +1316,7 @@ module.exports = {
 	
 	getTxChannels (ipaddress) {
 		let commandArguments = Buffer.from("0001000100", "hex");
-		for (let page = 0; page <= Math.ceil(this.devicesData[ipaddress]?.tx?.count/32); page++ ) {
+		for (let page = 0; page < Math.ceil((this.devicesData[ipaddress]?.tx?.count ?? 0) / 32); page++ ) {
 			commandArguments.writeUInt8(page*32+1, 3);
 			const commandBuffer = this.makeCommand(DANTE_CONST.COMMANDS.MESSAGE_TYPE_TX_CHANNEL_QUERY, commandArguments);
 			this.sendCommand(commandBuffer, ipaddress);
@@ -1302,7 +1325,7 @@ module.exports = {
 	
 	getRxChannels (ipaddress) {
 		let commandArguments = Buffer.from("0001000100", "hex");
-		for (let page = 0; page <= this.devicesData[ipaddress]?.tx?.count/16; page++ ) {
+		for (let page = 0; page < Math.ceil((this.devicesData[ipaddress]?.rx?.count ?? 0) / 16); page++ ) {
 			commandArguments.writeUInt8(page*16+1, 3);
 			const commandBuffer = this.makeCommand(DANTE_CONST.COMMANDS.MESSAGE_TYPE_RX_CHANNEL_QUERY, commandArguments);
 			this.sendCommand(commandBuffer, ipaddress);
